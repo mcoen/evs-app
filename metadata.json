@@ -1,0 +1,8 @@
+{
+  "name": "Service IQ - EVS",
+  "description": "A comprehensive task management mobile application for Environmental Services, Engineering, and BioMed hospital employees. Features real-time task tracking, floor plan navigation, and performance monitoring.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ]
+}
