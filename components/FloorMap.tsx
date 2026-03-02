@@ -1,42 +1,53 @@
-
 import React from 'react';
-import { LOCATIONS, ROTATIONAL_PATH } from '../constants';
 import { HospitalLocation, EmployeeRole } from '../types';
-import { CheckCircle2, Circle, AlertCircle } from 'lucide-react';
 
 interface FloorMapProps {
   currentLocationId: string;
   destinationLocationId: string;
   userRole?: EmployeeRole;
   rotationIndex?: number;
+  locations: HospitalLocation[];
+  rotationPath: string[];
 }
 
-const FloorMap: React.FC<FloorMapProps> = ({ currentLocationId, destinationLocationId, userRole, rotationIndex = 0 }) => {
-  const current = LOCATIONS.find(l => l.id === currentLocationId) || LOCATIONS[0];
-  const dest = LOCATIONS.find(l => l.id === destinationLocationId) || LOCATIONS[0];
-  const isEDRole = userRole === EmployeeRole.ED_EVS;
+const FALLBACK_LOCATION: HospitalLocation = { id: 'fallback', name: 'ED', x: 100, y: 60 };
 
-  // Filter locations for ED if it's an ED role
-  const mapLocations = isEDRole 
-    ? LOCATIONS.filter(l => l.id.startsWith('ED_'))
-    : LOCATIONS.filter(l => !l.id.startsWith('ED_'));
+const FloorMap: React.FC<FloorMapProps> = ({
+  currentLocationId,
+  destinationLocationId,
+  userRole,
+  rotationIndex = 0,
+  locations,
+  rotationPath
+}) => {
+  const isEDRole = userRole === EmployeeRole.ED_EVS;
+  const baseLocations = locations.length ? locations : [FALLBACK_LOCATION];
+  const rotationIds = rotationPath.length ? rotationPath : baseLocations.filter((location) => location.id.startsWith('ED_')).map((location) => location.id);
+  const rotationIdSet = new Set(rotationIds);
+
+  const mapLocations = isEDRole
+    ? baseLocations.filter((location) => rotationIdSet.size ? rotationIdSet.has(location.id) : location.id.startsWith('ED_'))
+    : baseLocations.filter((location) => rotationIdSet.size ? !rotationIdSet.has(location.id) : !location.id.startsWith('ED_'));
+
+  const renderLocations = mapLocations.length ? mapLocations : baseLocations;
+  const current = baseLocations.find((location) => location.id === currentLocationId) || renderLocations[0];
+  const dest = baseLocations.find((location) => location.id === destinationLocationId) || renderLocations[0];
 
   return (
     <div className="relative w-full h-64 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 overflow-hidden mb-4 shadow-inner">
       <svg viewBox={isEDRole ? "0 0 200 120" : "0 0 200 200"} className="w-full h-full">
-        {/* Floor Outline */}
         <rect x="5" y="5" width="190" height={isEDRole ? 110 : 190} fill="currentColor" className="text-slate-50 dark:text-slate-950" stroke="#e2e8f0" strokeWidth="1" />
-        
-        {/* Hallways */}
         <rect x="20" y="25" width="160" height={isEDRole ? 70 : 150} fill="currentColor" className="text-white dark:text-slate-900" />
-        
-        {/* Rotational Path for ED */}
-        {isEDRole && (
+
+        {isEDRole && rotationIds.length > 1 && (
           <polyline
-            points={ROTATIONAL_PATH.map(id => {
-              const loc = LOCATIONS.find(l => l.id === id);
-              return loc ? `${loc.x},${loc.y}` : '';
-            }).filter(p => p !== '').join(' ') + ` ${LOCATIONS.find(l => l.id === ROTATIONAL_PATH[0])?.x},${LOCATIONS.find(l => l.id === ROTATIONAL_PATH[0])?.y}`}
+            points={rotationIds
+              .map((id) => {
+                const loc = baseLocations.find((location) => location.id === id);
+                return loc ? `${loc.x},${loc.y}` : '';
+              })
+              .filter((point) => point !== '')
+              .join(' ')}
             fill="none"
             stroke="#2164f3"
             strokeWidth="0.5"
@@ -45,34 +56,30 @@ const FloorMap: React.FC<FloorMapProps> = ({ currentLocationId, destinationLocat
           />
         )}
 
-        {/* Room Markers */}
-        {mapLocations.map((loc) => {
-          const isRotationalBay = ROTATIONAL_PATH.includes(loc.id);
-          const bayIndex = ROTATIONAL_PATH.indexOf(loc.id);
-          const isCleaned = isEDRole && isRotationalBay && bayIndex < rotationIndex;
+        {renderLocations.map((location) => {
+          const isRotationalBay = rotationIdSet.has(location.id);
+          const bayIndex = rotationIds.indexOf(location.id);
+          const isCleaned = isEDRole && isRotationalBay && bayIndex > -1 && bayIndex < rotationIndex;
           const isCurrent = isEDRole && isRotationalBay && bayIndex === rotationIndex;
-          
+          const radius = isRotationalBay ? 10 : 2;
+
           let markerColor = 'text-slate-200 dark:text-slate-800';
           if (isRotationalBay) {
             markerColor = isCleaned ? 'text-emerald-500' : isCurrent ? 'text-blue-500' : 'text-rose-500';
           }
 
-          const radius = isRotationalBay ? 10 : 2;
-
           return (
-            <g key={loc.id}>
-              {/* Marker Circle */}
-              <circle 
-                cx={loc.x} 
-                cy={loc.y} 
-                r={radius} 
-                fill="currentColor" 
-                className={`${markerColor} ${isCurrent ? 'animate-pulse' : ''}`} 
+            <g key={location.id}>
+              <circle
+                cx={location.x}
+                cy={location.y}
+                r={radius}
+                fill="currentColor"
+                className={`${markerColor} ${isCurrent ? 'animate-pulse' : ''}`}
               />
-              
-              {/* Status Icon for ED Bays */}
+
               {isRotationalBay && (
-                <g transform={`translate(${loc.x - 5}, ${loc.y - 5}) scale(0.42)`}>
+                <g transform={`translate(${location.x - 5}, ${location.y - 5}) scale(0.42)`}>
                   {isCleaned ? (
                     <path d="M20 6L9 17l-5-5" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
                   ) : isCurrent ? (
@@ -83,12 +90,12 @@ const FloorMap: React.FC<FloorMapProps> = ({ currentLocationId, destinationLocat
                 </g>
               )}
 
-              <text x={loc.x} y={loc.y - (radius + 2)} fontSize="3.5" fill="currentColor" className="text-slate-400 font-bold uppercase tracking-tighter" textAnchor="middle">
-                {loc.name.replace('ED ', '')}
+              <text x={location.x} y={location.y - (radius + 2)} fontSize="3.5" fill="currentColor" className="text-slate-400 font-bold uppercase tracking-tighter" textAnchor="middle">
+                {location.name.replace(/^ED\s*/i, '')}
               </text>
-              
-              {isEDRole && isRotationalBay && (
-                <text x={loc.x} y={loc.y + 2.5} fontSize="3.5" fill="white" className="font-black opacity-40" textAnchor="middle">
+
+              {isEDRole && isRotationalBay && bayIndex > -1 && (
+                <text x={location.x} y={location.y + 2.5} fontSize="3.5" fill="white" className="font-black opacity-40" textAnchor="middle">
                   {bayIndex + 1}
                 </text>
               )}
@@ -96,7 +103,6 @@ const FloorMap: React.FC<FloorMapProps> = ({ currentLocationId, destinationLocat
           );
         })}
 
-        {/* Navigation Path */}
         {current && dest && current.id !== dest.id && (
           <path
             d={`M ${current.x} ${current.y} L ${dest.x} ${dest.y}`}
@@ -108,19 +114,14 @@ const FloorMap: React.FC<FloorMapProps> = ({ currentLocationId, destinationLocat
           />
         )}
 
-        {/* Current Position Marker */}
         <circle cx={current.x} cy={current.y} r="5" fill="#2164f3" className="animate-pulse shadow-xl">
           <title>Your Position</title>
         </circle>
-        
-        {/* Destination Marker */}
-        <path 
-          d={`M ${dest.x} ${dest.y-6} L ${dest.x-3} ${dest.y-10} L ${dest.x+3} ${dest.y-10} Z`} 
-          fill="#ef4444" 
-        />
+
+        <path d={`M ${dest.x} ${dest.y - 6} L ${dest.x - 3} ${dest.y - 10} L ${dest.x + 3} ${dest.y - 10} Z`} fill="#ef4444" />
         <circle cx={dest.x} cy={dest.y} r="4" fill="none" stroke="#ef4444" strokeWidth="1" />
       </svg>
-      
+
       <div className="absolute bottom-2 right-2 bg-white/80 dark:bg-slate-900/80 px-2 py-1 rounded text-[8px] font-bold uppercase tracking-widest text-slate-500 shadow-sm border border-slate-100">
         {isEDRole ? 'Emergency Department - Ground' : 'Level 4 East Wing'}
       </div>

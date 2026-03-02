@@ -77,6 +77,11 @@ export interface HospitalLocation {
   name: string;
   x: number;
   y: number;
+  unit?: string;
+  zoneName?: string;
+  floorName?: string;
+  sourceLocationId?: string;
+  sourceLabel?: string;
 }
 
 export interface AppNotification {

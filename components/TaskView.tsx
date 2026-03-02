@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Task, TaskPriority, EmployeeRole, TaskNote, AssetStatus } from '../types';
+import { Task, TaskPriority, EmployeeRole, AssetStatus, HospitalLocation } from '../types';
 import { 
   Clock, MapPin, CheckCircle, ShieldCheck, Play, Pause, XCircle, Activity, 
   Camera, Image as ImageIcon, RotateCcw, X, AlertTriangle, Check, BookOpen, 
@@ -9,7 +9,6 @@ import {
   Zap, ChevronLeft, ExternalLink
 } from 'lucide-react';
 import FloorMap from './FloorMap';
-import { LOCATIONS } from '../constants';
 
 interface TaskViewProps {
   task: Task;
@@ -27,6 +26,8 @@ interface TaskViewProps {
   onTogglePause: () => void;
   userLocationId: string;
   rotationIndex?: number;
+  locations: HospitalLocation[];
+  rotationPath: string[];
 }
 
 const CANCELLATION_REASONS = [
@@ -109,7 +110,9 @@ const TaskView: React.FC<TaskViewProps> = ({
   onStart,
   onTogglePause,
   userLocationId,
-  rotationIndex
+  rotationIndex,
+  locations,
+  rotationPath
 }) => {
   const [activeSection, setActiveSection] = useState<ActiveSection>(task.role === EmployeeRole.ED_EVS ? 'map' : null);
   const [showManual, setShowManual] = useState(false);
@@ -293,13 +296,18 @@ const TaskView: React.FC<TaskViewProps> = ({
     }
   };
 
+  const destinationLocation = useMemo(
+    () => locations.find((location) => location.id === task.locationId),
+    [locations, task.locationId]
+  );
+
   const travelTime = useMemo(() => {
-    const current = LOCATIONS.find(l => l.id === userLocationId);
-    const destination = LOCATIONS.find(l => l.id === task.locationId);
+    const current = locations.find((location) => location.id === userLocationId);
+    const destination = locations.find((location) => location.id === task.locationId);
     if (!current || !destination || current.id === destination.id) return 0;
     const dist = Math.sqrt(Math.pow(destination.x - current.x, 2) + Math.pow(destination.y - current.y, 2));
     return Math.ceil(dist / 50);
-  }, [userLocationId, task.locationId]);
+  }, [locations, userLocationId, task.locationId]);
 
   const getPriorityColor = (p: TaskPriority) => {
     switch (p) {
@@ -664,6 +672,11 @@ const TaskView: React.FC<TaskViewProps> = ({
           <span className="text-gray-300">|</span><span>{task.role}</span>
           {travelTime > 0 && <><span className="text-gray-300">|</span><span className="text-[10px] font-bold text-blue-600 uppercase tracking-tighter">{travelTime} MIN WALK</span></>}
         </div>
+        {destinationLocation?.unit && (
+          <p className="mt-1 text-[10px] font-bold text-emerald-700 uppercase tracking-widest">
+            Unit: {destinationLocation.unit}
+          </p>
+        )}
       </div>
 
       {/* Asset Control Card */}
@@ -720,6 +733,8 @@ const TaskView: React.FC<TaskViewProps> = ({
             destinationLocationId={task.locationId} 
             userRole={task.role} 
             rotationIndex={rotationIndex}
+            locations={locations}
+            rotationPath={rotationPath}
           />
         </div>
       )}

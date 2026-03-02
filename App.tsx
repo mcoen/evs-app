@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Task, AppNotification, TaskNote, EmployeeRole, TaskPriority, TaskStatus, User as AppUser } from './types';
+import { Task, AppNotification, TaskNote, EmployeeRole, TaskPriority, TaskStatus, User as AppUser, HospitalLocation } from './types';
 import { MOCK_TASKS, MOCK_NOTIFICATIONS, MOCK_HISTORY_TASKS, LOCATIONS, MOCK_USERS, ROTATIONAL_PATH, ROTATIONAL_PROTOCOL } from './constants';
 import TaskView from './components/TaskView';
 import Login from './components/Login';
+import { fetchFacilityIqEdPayload } from './facilityiq-api';
 import { 
   Coffee, User, Bell, Activity, ChevronLeft, Info, 
   AlertTriangle, AlertCircle, History as HistoryIcon, 
@@ -11,7 +12,7 @@ import {
   Moon, Sun, ChevronRight, BellRing, Shield, HelpCircle,
   ArrowRight, Sparkles, Menu, Search, ShieldCheck, FileText,
   MapPin, ClipboardList, Star, ShieldAlert, Calendar, X,
-  Bot, Mic, Send, Loader2
+  Bot, Mic, Send, Loader2, Wifi, WifiOff
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -24,6 +25,68 @@ const MOST_USED_QUERIES = [
   "Protocol for blood spill cleanup.",
   "Who is the lead supervisor today?"
 ];
+
+const LIVE_SYNC_MS = 15000;
+
+function findLocationById(locations: HospitalLocation[], locationId: string): HospitalLocation | undefined {
+  return locations.find((location) => location.id === locationId);
+}
+
+function roomLabel(location: HospitalLocation | undefined): string {
+  if (!location) {
+    return '';
+  }
+
+  const normalized = location.name.replace(/^ED\s*/i, '').trim();
+  return normalized || location.name;
+}
+
+function buildEdRotationalTask(locationId: string, locations: HospitalLocation[]): Task {
+  const bay = findLocationById(locations, locationId);
+  const bayUnit = bay?.unit ? ` Unit: ${bay.unit}.` : '';
+  const zone = bay?.zoneName ? ` Zone: ${bay.zoneName}.` : '';
+
+  return {
+    id: `ed-r-${Date.now()}`,
+    title: `Rotational Clean - ${bay?.name ?? locationId}`,
+    description: `Standard rotational maintenance clean.${bayUnit}${zone}`,
+    locationId,
+    roomNumber: roomLabel(bay),
+    role: EmployeeRole.ED_EVS,
+    priority: TaskPriority.LOW,
+    estimatedMinutes: 10,
+    actualMinutes: 0,
+    status: TaskStatus.PENDING,
+    checkList: ROTATIONAL_PROTOCOL,
+    notes: []
+  };
+}
+
+function buildEdEmergencyTask(locationId: string, locations: HospitalLocation[]): Task {
+  const bay = findLocationById(locations, locationId);
+  const bayLabel = roomLabel(bay) || 'Bay';
+  const bayUnit = bay?.unit ? ` Unit ${bay.unit}.` : '';
+
+  return {
+    id: `stat-${Date.now()}`,
+    title: `STAT Clean - ${bayLabel}`,
+    description: `CRITICAL: Infectious spill reported. Immediate response required.${bayUnit}`,
+    locationId,
+    roomNumber: bayLabel,
+    role: EmployeeRole.ED_EVS,
+    priority: TaskPriority.CRITICAL,
+    estimatedMinutes: 15,
+    actualMinutes: 0,
+    status: TaskStatus.IN_PROGRESS,
+    checkList: [
+      'Don full PPE immediately',
+      'Contain biohazard spill',
+      'Apply sporicidal disinfectant',
+      'Notify supervisor of completion'
+    ],
+    notes: []
+  };
+}
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
@@ -47,6 +110,11 @@ const App: React.FC = () => {
   const [rotationIndex, setRotationIndex] = useState(0);
   const [isEmergencyActive, setIsEmergencyActive] = useState(false);
   const [completedRotationalCount, setCompletedRotationalCount] = useState(0);
+  const [facilityName, setFacilityName] = useState('HCA Florida Mercy');
+  const [facilitySyncStatus, setFacilitySyncStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
+  const [facilitySyncMessage, setFacilitySyncMessage] = useState('Connecting to Facility IQ...');
+  const [liveEdLocations, setLiveEdLocations] = useState<HospitalLocation[]>([]);
+  const [liveRotationPath, setLiveRotationPath] = useState<string[]>([]);
 
   // AI Helper States - Initializing with default history for immediate visibility
   const [aiQuery, setAiQuery] = useState('');
@@ -61,6 +129,60 @@ const App: React.FC = () => {
   ]);
   const [isListening, setIsListening] = useState(false);
 
+  const activeRotationPath = liveRotationPath.length ? liveRotationPath : ROTATIONAL_PATH;
+  const activeLocations = useMemo(() => {
+    const nonEdLocations = LOCATIONS.filter((location) => !location.id.startsWith('ED_'));
+    const edLocations = liveEdLocations.length ? liveEdLocations : LOCATIONS.filter((location) => location.id.startsWith('ED_'));
+    return [...nonEdLocations, ...edLocations];
+  }, [liveEdLocations]);
+
+  useEffect(() => {
+    let active = true;
+    let controller: AbortController | null = null;
+
+    const syncFacilityIq = async () => {
+      controller?.abort();
+      controller = new AbortController();
+
+      try {
+        const payload = await fetchFacilityIqEdPayload(controller.signal);
+        if (!active) {
+          return;
+        }
+
+        setLiveEdLocations(payload.edLocations);
+        setLiveRotationPath(payload.rotationPath);
+        setFacilityName(payload.facilityName);
+        setFacilitySyncStatus('online');
+        setFacilitySyncMessage(
+          `Revision ${payload.revision} synced at ${new Date(payload.lastChangedAt).toLocaleTimeString()}`
+        );
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
+
+        setLiveEdLocations([]);
+        setLiveRotationPath([]);
+        setFacilitySyncStatus('offline');
+        setFacilitySyncMessage('Facility IQ API unavailable. Using default ED configuration.');
+      }
+    };
+
+    syncFacilityIq();
+    const interval = window.setInterval(syncFacilityIq, LIVE_SYNC_MS);
+
+    return () => {
+      active = false;
+      controller?.abort();
+      clearInterval(interval);
+    };
+  }, []);
+
   // Initialize tasks based on user role
   useEffect(() => {
     if (currentUser) {
@@ -71,24 +193,13 @@ const App: React.FC = () => {
         filteredTasks = filteredTasks.filter(t => t.priority === TaskPriority.LOW);
 
         if (filteredTasks.length === 0) {
-          const bayId = ROTATIONAL_PATH[rotationIndex];
-          const bay = LOCATIONS.find(l => l.id === bayId);
-          const rotTask: Task = {
-            id: `ed-r-${Date.now()}`,
-            title: `Rotational Clean - ${bay?.name}`,
-            description: 'Standard rotational maintenance clean.',
-            locationId: bayId,
-            roomNumber: bay?.name.replace('ED ', '') || '',
-            role: EmployeeRole.ED_EVS,
-            priority: TaskPriority.LOW,
-            estimatedMinutes: 10,
-            actualMinutes: 0,
-            status: TaskStatus.PENDING,
-            checkList: ROTATIONAL_PROTOCOL,
-            notes: []
-          };
-          filteredTasks = [...filteredTasks, rotTask];
+          const bayId = activeRotationPath[rotationIndex] ?? ROTATIONAL_PATH[0];
+          filteredTasks = [...filteredTasks, buildEdRotationalTask(bayId, activeLocations)];
         }
+
+        setUserLocationId(activeRotationPath[rotationIndex] ?? 'SUPPLY');
+      } else {
+        setUserLocationId('SUPPLY');
       }
       
       setTasks(filteredTasks);
@@ -184,26 +295,9 @@ const App: React.FC = () => {
 
   const triggerEmergency = () => {
     if (!currentUser || currentUser.role !== EmployeeRole.ED_EVS) return;
-    
-    const emergencyTask: Task = {
-      id: `stat-${Date.now()}`,
-      title: 'STAT Clean - Bay 3',
-      description: 'CRITICAL: Infectious spill reported. Immediate response required.',
-      locationId: 'ED_BAY3',
-      roomNumber: 'Bay 3',
-      role: EmployeeRole.ED_EVS,
-      priority: TaskPriority.CRITICAL,
-      estimatedMinutes: 15,
-      actualMinutes: 0,
-      status: TaskStatus.IN_PROGRESS,
-      checkList: [
-        'Don full PPE immediately',
-        'Contain biohazard spill',
-        'Apply sporicidal disinfectant',
-        'Notify supervisor of completion'
-      ],
-      notes: []
-    };
+    const emergencyLocationId =
+      activeRotationPath[Math.min(2, Math.max(activeRotationPath.length - 1, 0))] ?? 'ED_BAY3';
+    const emergencyTask = buildEdEmergencyTask(emergencyLocationId, activeLocations);
 
     setTasks(prev => [emergencyTask, ...prev]);
     // Keep user on current task but increment index since we inserted at 0
@@ -347,28 +441,13 @@ const App: React.FC = () => {
 
           let nextRotIdx = rotationIndex;
           if (taskToRemove.priority === TaskPriority.LOW) {
-            nextRotIdx = (rotationIndex + 1) % ROTATIONAL_PATH.length;
+            nextRotIdx = (rotationIndex + 1) % Math.max(activeRotationPath.length, 1);
             setRotationIndex(nextRotIdx);
           }
 
           if (!newTasks.some(t => t.priority === TaskPriority.LOW)) {
-            const bayId = ROTATIONAL_PATH[nextRotIdx];
-            const bay = LOCATIONS.find(l => l.id === bayId);
-            const rotTask: Task = {
-              id: `ed-r-${Date.now()}`,
-              title: `Rotational Clean - ${bay?.name}`,
-              description: 'Standard rotational maintenance clean.',
-              locationId: bayId,
-              roomNumber: bay?.name.replace('ED ', '') || '',
-              role: EmployeeRole.ED_EVS,
-              priority: TaskPriority.LOW,
-              estimatedMinutes: 10,
-              actualMinutes: 0,
-              status: TaskStatus.PENDING,
-              checkList: ROTATIONAL_PROTOCOL,
-              notes: []
-            };
-            newTasks.push(rotTask);
+            const bayId = activeRotationPath[nextRotIdx] ?? ROTATIONAL_PATH[0];
+            newTasks.push(buildEdRotationalTask(bayId, activeLocations));
           }
 
           newTasks.sort((a, b) => {
@@ -397,12 +476,12 @@ const App: React.FC = () => {
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const currentLoc = LOCATIONS.find(l => l.id === userLocationId)?.name || "Unknown Location";
-      const systemInstruction = `You are a specialized AI assistant for Environmental Services (EVS), Transport, Engineering, and BioMed staff at HCA Florida Mercy. 
+      const currentLoc = activeLocations.find((location) => location.id === userLocationId)?.name || "Unknown Location";
+      const systemInstruction = `You are a specialized AI assistant for Environmental Services (EVS), Transport, Engineering, and BioMed staff at ${facilityName}. 
       The current user role: ${currentUser?.role}. 
       Current user location: ${currentLoc}. 
       Task in progress: ${activeTask?.title || 'None'} in Room ${activeTask?.roomNumber || 'N/A'}.
-      Hospital Locations: ${LOCATIONS.map(l => l.name).join(', ')}.
+      Hospital Locations: ${activeLocations.map((location) => location.name).join(', ')}.
       Always be concise, professional, and helpful. Focus on hospital protocols and equipment locations.`;
 
       const response = await ai.models.generateContent({
@@ -830,6 +909,8 @@ const App: React.FC = () => {
           onTogglePause={() => setIsTaskPaused(!isTaskPaused)}
           userLocationId={userLocationId}
           rotationIndex={rotationIndex}
+          locations={activeLocations}
+          rotationPath={activeRotationPath}
         />
       </div>
     );
@@ -878,7 +959,7 @@ const App: React.FC = () => {
               </div>
               <div className="flex flex-col">
                 <h1 className="text-lg font-black uppercase tracking-tight">Service IQ</h1>
-                <h2 className="text-[9px] font-bold text-white/80 uppercase tracking-widest">HCA Florida Mercy</h2>
+                <h2 className="text-[9px] font-bold text-white/80 uppercase tracking-widest">{facilityName}</h2>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -890,9 +971,21 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="bg-[#1a54cc] text-white px-5 py-1.5 flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
-            <div className="flex items-center gap-1.5"><Activity size={12} className="text-emerald-400" /> System Active</div>
+            <div className="flex items-center gap-1.5">
+              {currentUser.role === EmployeeRole.ED_EVS ? (
+                facilitySyncStatus === 'online' ? <Wifi size={12} className="text-emerald-400" /> : <WifiOff size={12} className="text-amber-300" />
+              ) : (
+                <Activity size={12} className="text-emerald-400" />
+              )}
+              {currentUser.role === EmployeeRole.ED_EVS ? (facilitySyncStatus === 'online' ? 'Facility IQ Sync' : 'Fallback Mode') : 'System Active'}
+            </div>
             <div className="flex items-center gap-1 opacity-70"><Clock size={12} /> {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase()}</div>
           </div>
+          {currentUser.role === EmployeeRole.ED_EVS && (
+            <div className={`px-4 py-1 text-[9px] font-bold uppercase tracking-widest ${facilitySyncStatus === 'online' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+              {facilitySyncMessage}
+            </div>
+          )}
         </header>
 
         <main className="flex-grow overflow-hidden relative">
