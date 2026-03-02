@@ -92,8 +92,8 @@ const FloorMap: React.FC<FloorMapProps> = ({
 
               <text
                 x={location.x}
-                y={location.y - (radius + 3)}
-                fontSize={isEDRole ? "4.5" : "3.5"}
+                y={location.y - (radius + 4)}
+                fontSize={isEDRole ? "5.5" : "3.5"}
                 fill="currentColor"
                 className="text-slate-400 font-bold uppercase tracking-tighter"
                 textAnchor="middle"
