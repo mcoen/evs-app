@@ -1021,7 +1021,7 @@ const App: React.FC = () => {
               <button onClick={() => setCurrentView('actions')} className="active:scale-90 transition-transform"><Menu size={20} /></button>
             </div>
           </div>
-          <div className="bg-blue-800 text-white px-5 py-1.5 flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
+          <div className="bg-[#3152a1] text-white px-5 py-1.5 flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
             <div className="flex items-center gap-1.5">
               {currentUser.role === EmployeeRole.ED_EVS ? (
                 facilitySyncStatus === 'online' ? <Wifi size={12} className="text-emerald-400" /> : <WifiOff size={12} className="text-amber-300" />
