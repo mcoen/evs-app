@@ -835,23 +835,34 @@ const App: React.FC = () => {
       <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 px-1">Quick Actions</h2>
       <div className="space-y-3">
         <button 
-          onClick={() => { setIsOnBreak(!isOnBreak); setCurrentView('task'); }} 
+          onClick={() => {
+            if (!isOnBreak && isTaskStarted) {
+              return;
+            }
+            setIsOnBreak(!isOnBreak);
+            setCurrentView('task');
+          }}
+          disabled={!isOnBreak && isTaskStarted}
           className={`w-full flex items-center justify-between p-5 rounded-3xl border transition-all active:scale-95 ${
             isOnBreak 
               ? 'bg-emerald-500 text-white border-emerald-600 shadow-lg shadow-emerald-500/20' 
-              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-100 dark:border-slate-800 shadow-sm'
+              : isTaskStarted
+                ? 'bg-slate-50 dark:bg-slate-800/50 text-slate-300 dark:text-slate-700 border-slate-100 dark:border-slate-800 cursor-not-allowed'
+                : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-100 dark:border-slate-800 shadow-sm'
           }`}
         >
           <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-2xl ${isOnBreak ? 'bg-white/20' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600'}`}>
+            <div className={`p-3 rounded-2xl ${isOnBreak ? 'bg-white/20' : isTaskStarted ? 'bg-slate-100 dark:bg-slate-800' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600'}`}>
               <Coffee size={24} />
             </div>
             <div className="text-left">
               <p className="text-sm font-black uppercase tracking-tight">{isOnBreak ? 'End Break' : 'Go on Break'}</p>
-              <p className={`text-[10px] font-bold uppercase opacity-60`}>{isOnBreak ? 'Return to active duty' : 'Pause assignments'}</p>
+              <p className={`text-[10px] font-bold uppercase ${isTaskStarted && !isOnBreak ? 'opacity-40' : 'opacity-60'}`}>
+                {isOnBreak ? 'Return to active duty' : isTaskStarted ? 'Complete active task first' : 'Pause assignments'}
+              </p>
             </div>
           </div>
-          <ChevronRight size={20} className={isOnBreak ? 'text-white' : 'text-slate-300'} />
+          <ChevronRight size={20} className={isOnBreak ? 'text-white' : isTaskStarted ? 'text-slate-200' : 'text-slate-300'} />
         </button>
 
         <button 
