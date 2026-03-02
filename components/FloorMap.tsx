@@ -90,7 +90,14 @@ const FloorMap: React.FC<FloorMapProps> = ({
                 </g>
               )}
 
-              <text x={location.x} y={location.y - (radius + 2)} fontSize="3.5" fill="currentColor" className="text-slate-400 font-bold uppercase tracking-tighter" textAnchor="middle">
+              <text
+                x={location.x}
+                y={location.y - (radius + 3)}
+                fontSize={isEDRole ? "4.5" : "3.5"}
+                fill="currentColor"
+                className="text-slate-400 font-bold uppercase tracking-tighter"
+                textAnchor="middle"
+              >
                 {location.name.replace(/^ED\s*/i, '')}
               </text>
 
