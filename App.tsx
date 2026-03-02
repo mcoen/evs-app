@@ -898,7 +898,7 @@ const App: React.FC = () => {
               <div className="text-left">
                 <p className="text-sm font-black uppercase tracking-tight">End Shift</p>
                 <p className={`text-[10px] font-bold uppercase ${isTaskStarted ? 'opacity-40' : 'opacity-60'}`}>
-                  {isTaskStarted ? 'Complete active task first' : 'Clock out for the day'}
+                  {isTaskStarted ? 'Disabled due to active task' : 'Clock out for the day'}
                 </p>
               </div>
             </div>
