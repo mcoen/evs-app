@@ -24,7 +24,7 @@
       margin: 0;
       padding: 0;
       overflow: hidden; /* Prevent body scroll, use app container */
-      background-color: #0f172a; /* Base dark background to prevent white flashes */
+      background-color: #18181b; /* bg-zinc-900 */
     }
     #root {
       height: 100vh;
@@ -36,12 +36,15 @@
     "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.41.0"
   }
 }
 </script>
+<link rel="stylesheet" href="/index.css">
 </head>
 <body>
   <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
 </body>
 </html>

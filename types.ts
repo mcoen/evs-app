@@ -2,7 +2,9 @@
 export enum EmployeeRole {
   EVS = 'Environmental Services',
   ENGINEERING = 'Engineering',
-  BIOMED = 'BioMed'
+  BIOMED = 'BioMed',
+  TRANSPORTER = 'Transporter',
+  ED_EVS = 'ED EVS'
 }
 
 export enum TaskStatus {
@@ -17,6 +19,11 @@ export enum TaskPriority {
   MEDIUM = 'Medium',
   HIGH = 'High',
   CRITICAL = 'Critical'
+}
+
+export enum AssetStatus {
+  IN_SERVICE = 'In Service',
+  OUT_OF_SERVICE = 'Out of Service'
 }
 
 export interface ManualSection {
@@ -48,6 +55,21 @@ export interface Task {
   serviceManualDownloadUrl?: string;
   serviceManualImageUrl?: string;
   notes?: TaskNote[];
+  completionTimestamp?: string;
+  // Asset Management Fields
+  isAssetTask?: boolean;
+  assetId?: string;
+  assetStatus?: AssetStatus;
+  assetReplacementId?: string;
+  pullReason?: string;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  role: EmployeeRole;
+  employeeId: string;
+  avatar?: string;
 }
 
 export interface HospitalLocation {
