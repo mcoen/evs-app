@@ -151,12 +151,13 @@ function buildEdRotationalTask(locationId: string, locations: HospitalLocation[]
   const bay = findLocationById(locations, locationId);
   const bayLabel = roomLabel(bay) || bay?.name || locationId;
   const bayUnit = bay?.unit ? ` Unit: ${bay.unit}.` : '';
+  const bayFloor = bay?.floorName ? ` Floor: ${bay.floorName}.` : '';
   const zone = bay?.zoneName ? ` Zone: ${bay.zoneName}.` : '';
 
   return {
     id: `ed-r-${Date.now()}`,
     title: `Rotational Clean - ${bayLabel}`,
-    description: `Standard rotational maintenance clean.${bayUnit}${zone}`,
+    description: `Standard rotational maintenance clean.${bayUnit}${bayFloor}${zone}`,
     locationId,
     roomNumber: bayLabel,
     role: EmployeeRole.ED_EVS,
@@ -173,11 +174,12 @@ function buildEdEmergencyTask(locationId: string, locations: HospitalLocation[])
   const bay = findLocationById(locations, locationId);
   const bayLabel = roomLabel(bay) || 'Bay';
   const bayUnit = bay?.unit ? ` Unit ${bay.unit}.` : '';
+  const bayFloor = bay?.floorName ? ` Floor ${bay.floorName}.` : '';
 
   return {
     id: `stat-${Date.now()}`,
     title: `STAT Clean - ${bayLabel}`,
-    description: `CRITICAL: Infectious spill reported. Immediate response required.${bayUnit}`,
+    description: `CRITICAL: Infectious spill reported. Immediate response required.${bayUnit}${bayFloor}`,
     locationId,
     roomNumber: bayLabel,
     role: EmployeeRole.ED_EVS,
@@ -245,6 +247,12 @@ const App: React.FC = () => {
     const edLocations = liveEdLocations.length ? liveEdLocations : LOCATIONS.filter((location) => location.id.startsWith('ED_'));
     return [...nonEdLocations, ...edLocations];
   }, [liveFacilityLocations, liveEdLocations]);
+  const userScopedLocations = useMemo(() => {
+    if (currentUser?.role === EmployeeRole.ED_EVS) {
+      return activeLocations;
+    }
+    return activeLocations.filter((location) => !location.id.startsWith('ED_BAY'));
+  }, [activeLocations, currentUser?.role]);
 
   useEffect(() => {
     let active = true;
@@ -379,7 +387,9 @@ const App: React.FC = () => {
     });
 
     setUserLocationId((previousLocationId) => {
-      if (activeLocations.some((location) => location.id === previousLocationId)) {
+      const locationExists = activeLocations.some((location) => location.id === previousLocationId);
+      const isEdLocation = previousLocationId.startsWith('ED_BAY');
+      if (locationExists && (currentUser.role === EmployeeRole.ED_EVS || !isEdLocation)) {
         return previousLocationId;
       }
 
@@ -660,12 +670,12 @@ const App: React.FC = () => {
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const currentLoc = activeLocations.find((location) => location.id === userLocationId)?.name || "Unknown Location";
+      const currentLoc = userScopedLocations.find((location) => location.id === userLocationId)?.name || "Unknown Location";
       const systemInstruction = `You are a specialized AI assistant for Environmental Services (EVS), Transport, Engineering, and BioMed staff at ${facilityName}. 
       The current user role: ${currentUser?.role}. 
       Current user location: ${currentLoc}. 
       Task in progress: ${activeTask?.title || 'None'} in Room ${activeTask?.roomNumber || 'N/A'}.
-      Hospital Locations: ${activeLocations.map((location) => location.name).join(', ')}.
+      Hospital Locations: ${userScopedLocations.map((location) => location.name).join(', ')}.
       Always be concise, professional, and helpful. Focus on hospital protocols and equipment locations.`;
 
       const response = await ai.models.generateContent({
@@ -1105,7 +1115,7 @@ const App: React.FC = () => {
           onTogglePause={() => setIsTaskPaused(!isTaskPaused)}
           userLocationId={userLocationId}
           rotationIndex={rotationIndex}
-          locations={activeLocations}
+          locations={userScopedLocations}
           rotationPath={activeRotationPath}
         />
       </div>

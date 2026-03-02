@@ -24,14 +24,27 @@ const FloorMap: React.FC<FloorMapProps> = ({
   const baseLocations = locations.length ? locations : [FALLBACK_LOCATION];
   const rotationIds = rotationPath.length ? rotationPath : baseLocations.filter((location) => location.id.startsWith('ED_')).map((location) => location.id);
   const rotationIdSet = new Set(rotationIds);
+  const currentCandidate = baseLocations.find((location) => location.id === currentLocationId);
+  const destination = baseLocations.find((location) => location.id === destinationLocationId) || currentCandidate || baseLocations[0];
 
-  const mapLocations = isEDRole
+  const baseMapLocations = isEDRole
     ? baseLocations.filter((location) => rotationIdSet.size ? rotationIdSet.has(location.id) : location.id.startsWith('ED_'))
     : baseLocations.filter((location) => rotationIdSet.size ? !rotationIdSet.has(location.id) : !location.id.startsWith('ED_'));
+  const targetFloorName = !isEDRole ? (destination?.floorName || currentCandidate?.floorName) : undefined;
+  const floorScopedLocations =
+    !isEDRole && targetFloorName
+      ? baseMapLocations.filter((location) => location.floorName === targetFloorName)
+      : baseMapLocations;
 
+  const mapLocations = floorScopedLocations.length ? floorScopedLocations : baseMapLocations;
   const renderLocations = mapLocations.length ? mapLocations : baseLocations;
-  const current = baseLocations.find((location) => location.id === currentLocationId) || renderLocations[0];
-  const dest = baseLocations.find((location) => location.id === destinationLocationId) || renderLocations[0];
+  const fallbackLocation = renderLocations[0] || baseLocations[0];
+  const current =
+    !isEDRole && targetFloorName && currentCandidate?.floorName && currentCandidate.floorName !== targetFloorName
+      ? destination || fallbackLocation
+      : currentCandidate || fallbackLocation;
+  const dest = destination || fallbackLocation;
+  const mapLabel = isEDRole ? 'Emergency Department - Ground' : (targetFloorName || 'Facility Floor');
 
   return (
     <div className="relative w-full h-64 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 overflow-hidden mb-4 shadow-inner">
@@ -130,7 +143,7 @@ const FloorMap: React.FC<FloorMapProps> = ({
       </svg>
 
       <div className="absolute bottom-2 right-2 bg-white/80 dark:bg-slate-900/80 px-2 py-1 rounded text-[8px] font-bold uppercase tracking-widest text-slate-500 shadow-sm border border-slate-100">
-        {isEDRole ? 'Emergency Department - Ground' : 'Level 4 East Wing'}
+        {mapLabel}
       </div>
 
       <style>{`

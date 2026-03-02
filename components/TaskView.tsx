@@ -672,9 +672,11 @@ const TaskView: React.FC<TaskViewProps> = ({
           <span className="text-gray-300">|</span><span>{task.role}</span>
           {travelTime > 0 && <><span className="text-gray-300">|</span><span className="text-[10px] font-bold text-blue-600 uppercase tracking-tighter">{travelTime} MIN WALK</span></>}
         </div>
-        {destinationLocation?.unit && (
+        {(destinationLocation?.unit || destinationLocation?.floorName) && (
           <p className="mt-1 text-[10px] font-bold text-emerald-700 uppercase tracking-widest">
-            Unit: {destinationLocation.unit}
+            {destinationLocation?.unit ? `Unit: ${destinationLocation.unit}` : ''}
+            {destinationLocation?.unit && destinationLocation?.floorName ? ' • ' : ''}
+            {destinationLocation?.floorName ? `Floor: ${destinationLocation.floorName}` : ''}
           </p>
         )}
       </div>
