@@ -77,6 +77,7 @@ export interface HospitalLocation {
   name: string;
   x: number;
   y: number;
+  locationType?: string;
   unit?: string;
   zoneName?: string;
   floorName?: string;

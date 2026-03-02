@@ -46,6 +46,107 @@ function roomLabel(location: HospitalLocation | undefined): string {
   return normalized || location.name;
 }
 
+function normalizeToken(value: string | undefined): string {
+  return (value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function resolveFacilityLocationForTask(task: Task, locations: HospitalLocation[]): HospitalLocation | undefined {
+  const nonEdLocations = locations.filter((location) => !location.id.startsWith('ED_BAY'));
+  if (!nonEdLocations.length) {
+    return undefined;
+  }
+
+  const normalizedLocationId = normalizeToken(task.locationId);
+  const normalizedRoom = normalizeToken(task.roomNumber);
+  const normalizedTitle = normalizeToken(task.title);
+  const normalizedDescription = normalizeToken(task.description);
+
+  const directIdMatch = nonEdLocations.find((location) => normalizeToken(location.id) === normalizedLocationId);
+  if (directIdMatch) {
+    return directIdMatch;
+  }
+
+  const roomTokens = [normalizedRoom, normalizedLocationId].filter((token) => token.length > 0);
+  for (const token of roomTokens) {
+    const roomMatch = nonEdLocations.find((location) => {
+      const sourceLabel = normalizeToken(location.sourceLabel);
+      const locationName = normalizeToken(location.name);
+      return (
+        sourceLabel === token ||
+        locationName === token ||
+        locationName.endsWith(token) ||
+        locationName.includes(`room${token}`)
+      );
+    });
+
+    if (roomMatch) {
+      return roomMatch;
+    }
+  }
+
+  const orNumber = (task.roomNumber.match(/\d+/) ?? task.title.match(/\d+/) ?? task.description.match(/\d+/))?.[0];
+  const likelyOrTask =
+    normalizedRoom.startsWith('or') || normalizedTitle.includes('or') || normalizedDescription.includes('operatingroom');
+  if (likelyOrTask && orNumber) {
+    const procedureMatch = nonEdLocations.find((location) => {
+      const locationName = normalizeToken(location.name);
+      return locationName.includes(`procedure${orNumber}`) || locationName.includes(`or${orNumber}`);
+    });
+
+    if (procedureMatch) {
+      return procedureMatch;
+    }
+  }
+
+  const stationTask = normalizedLocationId === 'station' || normalizedTitle.includes('station') || normalizedDescription.includes('station');
+  if (stationTask) {
+    const stationMatch =
+      nonEdLocations.find((location) => location.locationType === 'nurse_station') ??
+      nonEdLocations.find((location) => normalizeToken(location.name).includes('nursestation'));
+    if (stationMatch) {
+      return stationMatch;
+    }
+  }
+
+  const supplyTask =
+    normalizedLocationId === 'supply' || normalizedTitle.includes('supply') || normalizedDescription.includes('supply');
+  if (supplyTask) {
+    const supplyMatch =
+      nonEdLocations.find((location) => normalizeToken(location.name).includes('supply')) ??
+      nonEdLocations.find((location) => normalizeToken(location.unit).includes('pharmacy')) ??
+      nonEdLocations.find((location) => normalizeToken(location.zoneName).includes('pharm')) ??
+      nonEdLocations.find((location) => location.locationType === 'other');
+
+    if (supplyMatch) {
+      return supplyMatch;
+    }
+  }
+
+  return nonEdLocations[0];
+}
+
+function mapTaskToFacilityLocation(task: Task, locations: HospitalLocation[]): Task {
+  if (task.role === EmployeeRole.ED_EVS) {
+    return task;
+  }
+
+  const resolvedLocation = resolveFacilityLocationForTask(task, locations);
+  if (!resolvedLocation) {
+    return task;
+  }
+
+  const resolvedRoom = roomLabel(resolvedLocation) || task.roomNumber;
+  if (task.locationId === resolvedLocation.id && task.roomNumber === resolvedRoom) {
+    return task;
+  }
+
+  return {
+    ...task,
+    locationId: resolvedLocation.id,
+    roomNumber: resolvedRoom
+  };
+}
+
 function buildEdRotationalTask(locationId: string, locations: HospitalLocation[]): Task {
   const bay = findLocationById(locations, locationId);
   const bayLabel = roomLabel(bay) || bay?.name || locationId;
@@ -119,6 +220,7 @@ const App: React.FC = () => {
   const [facilityName, setFacilityName] = useState('HCA Florida Mercy');
   const [facilitySyncStatus, setFacilitySyncStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
   const [facilitySyncMessage, setFacilitySyncMessage] = useState('Connecting to Facility IQ...');
+  const [liveFacilityLocations, setLiveFacilityLocations] = useState<HospitalLocation[]>([]);
   const [liveEdLocations, setLiveEdLocations] = useState<HospitalLocation[]>([]);
   const [liveRotationPath, setLiveRotationPath] = useState<string[]>([]);
 
@@ -137,10 +239,12 @@ const App: React.FC = () => {
 
   const activeRotationPath = liveRotationPath.length ? liveRotationPath : ROTATIONAL_PATH;
   const activeLocations = useMemo(() => {
-    const nonEdLocations = LOCATIONS.filter((location) => !location.id.startsWith('ED_'));
+    const nonEdLocations = liveFacilityLocations.length
+      ? liveFacilityLocations
+      : LOCATIONS.filter((location) => !location.id.startsWith('ED_'));
     const edLocations = liveEdLocations.length ? liveEdLocations : LOCATIONS.filter((location) => location.id.startsWith('ED_'));
     return [...nonEdLocations, ...edLocations];
-  }, [liveEdLocations]);
+  }, [liveFacilityLocations, liveEdLocations]);
 
   useEffect(() => {
     let active = true;
@@ -156,6 +260,7 @@ const App: React.FC = () => {
           return;
         }
 
+        setLiveFacilityLocations(payload.facilityLocations);
         setLiveEdLocations(payload.edLocations);
         setLiveRotationPath(payload.rotationPath);
         setFacilityName(payload.facilityName);
@@ -172,6 +277,7 @@ const App: React.FC = () => {
           return;
         }
 
+        setLiveFacilityLocations([]);
         setLiveEdLocations([]);
         setLiveRotationPath([]);
         setFacilitySyncStatus('offline');
@@ -205,7 +311,8 @@ const App: React.FC = () => {
 
         setUserLocationId(activeRotationPath[rotationIndex] ?? 'SUPPLY');
       } else {
-        setUserLocationId('SUPPLY');
+        filteredTasks = filteredTasks.map((task) => mapTaskToFacilityLocation(task, activeLocations));
+        setUserLocationId(filteredTasks[0]?.locationId ?? activeLocations[0]?.id ?? 'SUPPLY');
       }
       
       setTasks(filteredTasks);
@@ -219,48 +326,75 @@ const App: React.FC = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    if (currentUser?.role !== EmployeeRole.ED_EVS || !liveEdLocations.length) {
+    if (!currentUser) {
       return;
     }
 
     setTasks((previousTasks) => {
       let changed = false;
       const updatedTasks = previousTasks.map((task) => {
-        if (task.role !== EmployeeRole.ED_EVS) {
-          return task;
+        if (task.role === EmployeeRole.ED_EVS) {
+          const refreshedTask =
+            task.priority === TaskPriority.CRITICAL
+              ? buildEdEmergencyTask(task.locationId, activeLocations)
+              : task.priority === TaskPriority.LOW
+                ? buildEdRotationalTask(task.locationId, activeLocations)
+                : null;
+
+          if (!refreshedTask) {
+            return task;
+          }
+
+          if (
+            task.title === refreshedTask.title &&
+            task.description === refreshedTask.description &&
+            task.roomNumber === refreshedTask.roomNumber
+          ) {
+            return task;
+          }
+
+          changed = true;
+          return {
+            ...task,
+            title: refreshedTask.title,
+            description: refreshedTask.description,
+            roomNumber: refreshedTask.roomNumber
+          };
         }
 
-        const refreshedTask =
-          task.priority === TaskPriority.CRITICAL
-            ? buildEdEmergencyTask(task.locationId, activeLocations)
-            : task.priority === TaskPriority.LOW
-              ? buildEdRotationalTask(task.locationId, activeLocations)
-              : null;
-
-        if (!refreshedTask) {
-          return task;
-        }
-
-        if (
-          task.title === refreshedTask.title &&
-          task.description === refreshedTask.description &&
-          task.roomNumber === refreshedTask.roomNumber
-        ) {
+        const mappedTask = mapTaskToFacilityLocation(task, activeLocations);
+        if (mappedTask.locationId === task.locationId && mappedTask.roomNumber === task.roomNumber) {
           return task;
         }
 
         changed = true;
         return {
           ...task,
-          title: refreshedTask.title,
-          description: refreshedTask.description,
-          roomNumber: refreshedTask.roomNumber
+          locationId: mappedTask.locationId,
+          roomNumber: mappedTask.roomNumber
         };
       });
 
       return changed ? updatedTasks : previousTasks;
     });
-  }, [currentUser?.role, liveEdLocations, activeLocations]);
+
+    setUserLocationId((previousLocationId) => {
+      if (activeLocations.some((location) => location.id === previousLocationId)) {
+        return previousLocationId;
+      }
+
+      if (currentUser.role === EmployeeRole.ED_EVS) {
+        return activeRotationPath[rotationIndex] ?? activeLocations[0]?.id ?? previousLocationId;
+      }
+
+      const userTask = MOCK_TASKS.find((task) => task.role === currentUser.role);
+      if (userTask) {
+        return mapTaskToFacilityLocation(userTask, activeLocations).locationId;
+      }
+
+      return activeLocations[0]?.id ?? previousLocationId;
+    });
+  }, [currentUser, activeLocations, activeRotationPath, rotationIndex]);
 
   const activeTask = tasks[currentIndex];
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -857,12 +991,12 @@ const App: React.FC = () => {
             </div>
             <div className="text-left">
               <p className="text-sm font-black uppercase tracking-tight">{isOnBreak ? 'End Break' : 'Go on Break'}</p>
-              <p className={`text-[10px] font-bold uppercase ${isTaskStarted && !isOnBreak ? 'opacity-40' : 'opacity-60'}`}>
+              <p className="text-[10px] font-bold uppercase text-slate-400">
                 {isOnBreak ? 'Return to active duty' : isTaskStarted ? 'Complete active task first' : 'Pause assignments'}
               </p>
             </div>
           </div>
-          <ChevronRight size={20} className={isOnBreak ? 'text-white' : isTaskStarted ? 'text-slate-200' : 'text-slate-300'} />
+          <ChevronRight size={20} className="text-slate-300" />
         </button>
 
         <button 
@@ -897,12 +1031,12 @@ const App: React.FC = () => {
               </div>
               <div className="text-left">
                 <p className="text-sm font-black uppercase tracking-tight">End Shift</p>
-                <p className={`text-[10px] font-bold uppercase ${isTaskStarted ? 'opacity-40' : 'opacity-60'}`}>
+                <p className="text-[10px] font-bold uppercase text-slate-400">
                   {isTaskStarted ? 'Disabled due to active task' : 'Clock out for the day'}
                 </p>
               </div>
             </div>
-            <ChevronRight size={20} className={isTaskStarted ? 'text-slate-200' : 'text-blue-700'} />
+            <ChevronRight size={20} className="text-slate-300" />
           </button>
         )}
       </div>

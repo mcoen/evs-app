@@ -34,9 +34,10 @@ interface SnapshotResponse {
   facilities: SnapshotFacility[];
 }
 
-interface EdSourceLocation {
+interface SourceLocation {
   floorName: string;
   zoneName: string;
+  zoneCode: string;
   location: SnapshotLocation;
 }
 
@@ -44,6 +45,7 @@ export interface FacilityIqEdPayload {
   revision: number;
   lastChangedAt: string;
   facilityName: string;
+  facilityLocations: HospitalLocation[];
   edLocations: HospitalLocation[];
   rotationPath: string[];
 }
@@ -69,6 +71,11 @@ function isEmergencyZone(zone: SnapshotZone): boolean {
   return normalized.includes("emergency") || normalized.includes(" ed") || normalized.endsWith("ed");
 }
 
+function isEmergencyZoneLabel(zoneName: string, zoneCode: string): boolean {
+  const normalized = `${zoneName} ${zoneCode}`.toLowerCase();
+  return normalized.includes("emergency") || normalized.includes(" ed") || normalized.endsWith("ed");
+}
+
 function selectFacility(facilities: SnapshotFacility[]): SnapshotFacility | undefined {
   const withEd = facilities.filter((facility) =>
     facility.floors.some((floor) => floor.zones.some((zone) => isEmergencyZone(zone) && zone.locations.length > 0))
@@ -85,19 +92,16 @@ function selectFacility(facilities: SnapshotFacility[]): SnapshotFacility | unde
   return withEd.find((facility) => facility.name.toLowerCase().includes(FACILITY_NAME_FILTER)) ?? withEd[0];
 }
 
-function extractEdLocations(facility: SnapshotFacility): EdSourceLocation[] {
-  const list: EdSourceLocation[] = [];
+function extractSourceLocations(facility: SnapshotFacility): SourceLocation[] {
+  const list: SourceLocation[] = [];
 
   for (const floor of facility.floors) {
     for (const zone of floor.zones) {
-      if (!isEmergencyZone(zone)) {
-        continue;
-      }
-
       for (const location of zone.locations) {
         list.push({
           floorName: floor.name,
           zoneName: zone.name,
+          zoneCode: zone.code,
           location
         });
       }
@@ -122,6 +126,27 @@ function dynamicCoordinate(index: number, total: number): { x: number; y: number
   const x = 30 + col * 33;
   const y = 40 + row * 28;
   return { x, y };
+}
+
+function dynamicGridCoordinate(index: number, total: number): { x: number; y: number } {
+  if (total <= 1) {
+    return { x: 100, y: 100 };
+  }
+
+  const columns = Math.max(4, Math.ceil(Math.sqrt(total)));
+  const rows = Math.max(1, Math.ceil(total / columns));
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+
+  const width = 160;
+  const height = 160;
+  const xStep = columns > 1 ? width / (columns - 1) : 0;
+  const yStep = rows > 1 ? height / (rows - 1) : 0;
+
+  return {
+    x: 20 + column * xStep,
+    y: 20 + row * yStep
+  };
 }
 
 function labelFor(location: SnapshotLocation, index: number): string {
@@ -154,10 +179,29 @@ export async function fetchFacilityIqEdPayload(signal?: AbortSignal): Promise<Fa
     throw new Error("Unable to select facility from snapshot");
   }
 
-  const edSourceLocations = extractEdLocations(facility);
+  const allSourceLocations = extractSourceLocations(facility);
+  const edSourceLocations = allSourceLocations.filter((entry) => isEmergencyZoneLabel(entry.zoneName, entry.zoneCode));
   if (!edSourceLocations.length) {
     throw new Error(`No ED locations found for ${facility.name}`);
   }
+
+  const facilitySourceLocations = allSourceLocations.filter((entry) => !isEmergencyZoneLabel(entry.zoneName, entry.zoneCode));
+
+  const facilityLocations: HospitalLocation[] = facilitySourceLocations.map((entry, index) => {
+    const coordinate = dynamicGridCoordinate(index, facilitySourceLocations.length);
+    return {
+      id: entry.location.id,
+      name: entry.location.name,
+      x: coordinate.x,
+      y: coordinate.y,
+      locationType: entry.location.locationType,
+      unit: entry.location.unit,
+      zoneName: entry.zoneName,
+      floorName: entry.floorName,
+      sourceLocationId: entry.location.id,
+      sourceLabel: entry.location.room ?? entry.location.name
+    };
+  });
 
   const edLocations: HospitalLocation[] = edSourceLocations.map((entry, index) => {
     const coordinate = dynamicCoordinate(index, edSourceLocations.length);
@@ -166,6 +210,7 @@ export async function fetchFacilityIqEdPayload(signal?: AbortSignal): Promise<Fa
       name: labelFor(entry.location, index),
       x: coordinate.x,
       y: coordinate.y,
+      locationType: entry.location.locationType,
       unit: entry.location.unit,
       zoneName: entry.zoneName,
       floorName: entry.floorName,
@@ -178,6 +223,7 @@ export async function fetchFacilityIqEdPayload(signal?: AbortSignal): Promise<Fa
     revision: payload.revision,
     lastChangedAt: payload.lastChangedAt,
     facilityName: facility.name,
+    facilityLocations,
     edLocations,
     rotationPath: edLocations.map((location) => location.id)
   };
