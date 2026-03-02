@@ -27,6 +27,8 @@ const MOST_USED_QUERIES = [
 ];
 
 const LIVE_SYNC_MS = 15000;
+const BRIDGE_RECONNECT_MS = 3000;
+const FACILITY_IQ_BRIDGE_EVENTS_URL = (import.meta.env?.VITE_FACILITYIQ_BRIDGE_EVENTS_URL ?? "http://localhost:4100/api/bridge/events").replace(/\/$/, "");
 
 function findLocationById(locations: HospitalLocation[], locationId: string): HospitalLocation | undefined {
   return locations.find((location) => location.id === locationId);
@@ -257,6 +259,8 @@ const App: React.FC = () => {
   useEffect(() => {
     let active = true;
     let controller: AbortController | null = null;
+    let bridgeEventSource: EventSource | null = null;
+    let reconnectTimer: number | undefined;
 
     const syncFacilityIq = async () => {
       controller?.abort();
@@ -293,13 +297,51 @@ const App: React.FC = () => {
       }
     };
 
+    const connectBridgeEvents = () => {
+      if (!active) {
+        return;
+      }
+
+      bridgeEventSource?.close();
+      bridgeEventSource = null;
+
+      try {
+        bridgeEventSource = new EventSource(FACILITY_IQ_BRIDGE_EVENTS_URL);
+      } catch {
+        reconnectTimer = window.setTimeout(connectBridgeEvents, BRIDGE_RECONNECT_MS);
+        return;
+      }
+
+      bridgeEventSource.addEventListener('facility-iq-change', () => {
+        void syncFacilityIq();
+      });
+
+      bridgeEventSource.onerror = () => {
+        bridgeEventSource?.close();
+        bridgeEventSource = null;
+        if (!active) {
+          return;
+        }
+
+        if (reconnectTimer) {
+          window.clearTimeout(reconnectTimer);
+        }
+        reconnectTimer = window.setTimeout(connectBridgeEvents, BRIDGE_RECONNECT_MS);
+      };
+    };
+
     syncFacilityIq();
+    connectBridgeEvents();
     const interval = window.setInterval(syncFacilityIq, LIVE_SYNC_MS);
 
     return () => {
       active = false;
       controller?.abort();
       clearInterval(interval);
+      bridgeEventSource?.close();
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
     };
   }, []);
 
