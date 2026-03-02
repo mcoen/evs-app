@@ -49,7 +49,7 @@ const FloorMap: React.FC<FloorMapProps> = ({
               .filter((point) => point !== '')
               .join(' ')}
             fill="none"
-            stroke="#2164f3"
+            stroke="#1e3a8a"
             strokeWidth="0.5"
             strokeDasharray="2 2"
             opacity="0.15"
@@ -114,14 +114,14 @@ const FloorMap: React.FC<FloorMapProps> = ({
           <path
             d={`M ${current.x} ${current.y} L ${dest.x} ${dest.y}`}
             fill="none"
-            stroke="#2164f3"
+            stroke="#1e3a8a"
             strokeWidth="1.5"
             strokeDasharray="4 2"
             className="animate-[dash_2s_linear_infinite]"
           />
         )}
 
-        <circle cx={current.x} cy={current.y} r="5" fill="#2164f3" className="animate-pulse shadow-xl">
+        <circle cx={current.x} cy={current.y} r="5" fill="#1e3a8a" className="animate-pulse shadow-xl">
           <title>Your Position</title>
         </circle>
 

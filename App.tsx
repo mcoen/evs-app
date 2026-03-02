@@ -37,21 +37,27 @@ function roomLabel(location: HospitalLocation | undefined): string {
     return '';
   }
 
+  const sourceLabel = location.sourceLabel?.trim();
+  if (sourceLabel) {
+    return sourceLabel;
+  }
+
   const normalized = location.name.replace(/^ED\s*/i, '').trim();
   return normalized || location.name;
 }
 
 function buildEdRotationalTask(locationId: string, locations: HospitalLocation[]): Task {
   const bay = findLocationById(locations, locationId);
+  const bayLabel = roomLabel(bay) || bay?.name || locationId;
   const bayUnit = bay?.unit ? ` Unit: ${bay.unit}.` : '';
   const zone = bay?.zoneName ? ` Zone: ${bay.zoneName}.` : '';
 
   return {
     id: `ed-r-${Date.now()}`,
-    title: `Rotational Clean - ${bay?.name ?? locationId}`,
+    title: `Rotational Clean - ${bayLabel}`,
     description: `Standard rotational maintenance clean.${bayUnit}${zone}`,
     locationId,
-    roomNumber: roomLabel(bay),
+    roomNumber: bayLabel,
     role: EmployeeRole.ED_EVS,
     priority: TaskPriority.LOW,
     estimatedMinutes: 10,
@@ -211,6 +217,50 @@ const App: React.FC = () => {
       setCompletedHistory(filteredHistory);
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser?.role !== EmployeeRole.ED_EVS || !liveEdLocations.length) {
+      return;
+    }
+
+    setTasks((previousTasks) => {
+      let changed = false;
+      const updatedTasks = previousTasks.map((task) => {
+        if (task.role !== EmployeeRole.ED_EVS) {
+          return task;
+        }
+
+        const refreshedTask =
+          task.priority === TaskPriority.CRITICAL
+            ? buildEdEmergencyTask(task.locationId, activeLocations)
+            : task.priority === TaskPriority.LOW
+              ? buildEdRotationalTask(task.locationId, activeLocations)
+              : null;
+
+        if (!refreshedTask) {
+          return task;
+        }
+
+        if (
+          task.title === refreshedTask.title &&
+          task.description === refreshedTask.description &&
+          task.roomNumber === refreshedTask.roomNumber
+        ) {
+          return task;
+        }
+
+        changed = true;
+        return {
+          ...task,
+          title: refreshedTask.title,
+          description: refreshedTask.description,
+          roomNumber: refreshedTask.roomNumber
+        };
+      });
+
+      return changed ? updatedTasks : previousTasks;
+    });
+  }, [currentUser?.role, liveEdLocations, activeLocations]);
 
   const activeTask = tasks[currentIndex];
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -872,8 +922,9 @@ const App: React.FC = () => {
   const renderTaskView = () => {
     if (!activeTask) return <div className="p-8 text-center flex flex-col items-center justify-center h-full"><ClipboardList size={48} className="text-slate-300 mb-4" /><h2 className="text-xl font-bold text-slate-400">No Tasks Assigned</h2><p className="text-xs text-slate-400 mt-2">Check back later for new assignments.</p></div>;
     if (isOnBreak) return <div className="p-8 text-center"><Coffee size={40} className="mx-auto text-emerald-500 mb-4" /><h2 className="text-xl font-bold mb-8">On Break</h2><button onClick={() => setIsOnBreak(false)} className="w-full bg-emerald-500 text-white font-bold py-4 rounded-xl">RETURN TO DUTY</button></div>;
-    if (showBreakOffer) return <div className="p-8 text-center flex flex-col items-center justify-center h-full"><Sparkles size={40} className="text-emerald-500 mb-4" /><h2 className="text-2xl font-black mb-8">Task Finished!</h2><div className="w-full space-y-3"><button onClick={proceedToNextTask} className="w-full py-5 bg-[#2164f3] text-white font-bold rounded-2xl">Next Task</button><button onClick={() => setIsOnBreak(true)} className="w-full py-5 bg-white border-2 border-emerald-500 text-emerald-500 font-bold rounded-2xl">Break</button></div></div>;
+    if (showBreakOffer) return <div className="p-8 text-center flex flex-col items-center justify-center h-full"><Sparkles size={40} className="text-emerald-500 mb-4" /><h2 className="text-2xl font-black mb-8">Task Finished!</h2><div className="w-full space-y-3"><button onClick={proceedToNextTask} className="w-full py-5 bg-blue-900 text-white font-bold rounded-2xl">Next Task</button><button onClick={() => setIsOnBreak(true)} className="w-full py-5 bg-white border-2 border-emerald-500 text-emerald-500 font-bold rounded-2xl">Break</button></div></div>;
     if (showNextPreview) return <div className="p-8 text-center"><Activity size={48} className="mx-auto animate-pulse text-blue-500 mb-4" /><h2 className="text-xl font-bold">Getting Next Task...</h2></div>;
+    const emergencyTask = tasks.find((task) => task.priority === TaskPriority.CRITICAL);
 
     return (
       <div className="flex flex-col h-full relative">
@@ -886,7 +937,7 @@ const App: React.FC = () => {
               <AlertTriangle size={20} />
               <div className="text-left">
                 <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Stat Interruption</p>
-                <p className="text-xs font-bold">Bay 3 requires immediate clean</p>
+                <p className="text-xs font-bold">{emergencyTask?.roomNumber || 'Assigned room'} requires immediate clean</p>
               </div>
             </div>
             <ArrowRight size={18} />
@@ -952,7 +1003,7 @@ const App: React.FC = () => {
           </div>
         </div>
         <header className="flex flex-col flex-shrink-0 z-30 shadow-lg">
-          <div className="bg-[#2164f3] text-white px-4 py-3 flex items-center justify-between">
+          <div className="bg-blue-900/95 text-white px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div onClick={() => setCurrentView('profile')} className="w-10 h-10 rounded-full bg-white/20 border border-white/40 flex items-center justify-center font-bold cursor-pointer active:scale-90 transition-transform">
                 {currentUser.name.split(' ').map(n => n[0]).join('')}
@@ -965,12 +1016,12 @@ const App: React.FC = () => {
             <div className="flex items-center gap-3">
               <button onClick={() => setCurrentView('notifications')} className="relative p-1 active:scale-90 transition-transform">
                 <Bell size={20} />
-                {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-600 rounded-full border-2 border-[#2164f3]" />}
+                {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-600 rounded-full border-2 border-blue-900" />}
               </button>
               <button onClick={() => setCurrentView('actions')} className="active:scale-90 transition-transform"><Menu size={20} /></button>
             </div>
           </div>
-          <div className="bg-[#1a54cc] text-white px-5 py-1.5 flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
+          <div className="bg-blue-900 text-white px-5 py-1.5 flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
             <div className="flex items-center gap-1.5">
               {currentUser.role === EmployeeRole.ED_EVS ? (
                 facilitySyncStatus === 'online' ? <Wifi size={12} className="text-emerald-400" /> : <WifiOff size={12} className="text-amber-300" />
@@ -998,10 +1049,10 @@ const App: React.FC = () => {
         </main>
 
         <nav className="bg-white dark:bg-slate-900 border-t dark:border-slate-800 px-4 py-2 flex justify-between items-center h-16 flex-shrink-0 z-10 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
-          <button onClick={() => setCurrentView('task')} className={`flex flex-col items-center gap-1 flex-1 transition-all active:scale-90 ${currentView === 'task' ? 'text-[#2164f3]' : 'text-gray-300'}`}><Activity size={20} /><span className="text-[8px] font-bold uppercase">Tasks</span></button>
-          <button onClick={() => setCurrentView('history')} className={`flex flex-col items-center gap-1 flex-1 transition-all active:scale-90 ${currentView === 'history' ? 'text-[#2164f3]' : 'text-gray-300'}`}><HistoryIcon size={20} /><span className="text-[8px] font-bold uppercase">History</span></button>
-          <button onClick={() => setCurrentView('ai')} className={`flex flex-col items-center gap-1 flex-1 transition-all active:scale-90 ${currentView === 'ai' ? 'text-[#2164f3]' : 'text-gray-300'}`}><Bot size={20} /><span className="text-[8px] font-bold uppercase">AI Helper</span></button>
-          <button onClick={() => setCurrentView('profile')} className={`flex flex-col items-center gap-1 flex-1 transition-all active:scale-90 ${currentView === 'profile' ? 'text-[#2164f3]' : 'text-gray-300'}`}><User size={20} /><span className="text-[8px] font-bold uppercase">Me</span></button>
+          <button onClick={() => setCurrentView('task')} className={`flex flex-col items-center gap-1 flex-1 transition-all active:scale-90 ${currentView === 'task' ? 'text-blue-900' : 'text-gray-300'}`}><Activity size={20} /><span className="text-[8px] font-bold uppercase">Tasks</span></button>
+          <button onClick={() => setCurrentView('history')} className={`flex flex-col items-center gap-1 flex-1 transition-all active:scale-90 ${currentView === 'history' ? 'text-blue-900' : 'text-gray-300'}`}><HistoryIcon size={20} /><span className="text-[8px] font-bold uppercase">History</span></button>
+          <button onClick={() => setCurrentView('ai')} className={`flex flex-col items-center gap-1 flex-1 transition-all active:scale-90 ${currentView === 'ai' ? 'text-blue-900' : 'text-gray-300'}`}><Bot size={20} /><span className="text-[8px] font-bold uppercase">AI Helper</span></button>
+          <button onClick={() => setCurrentView('profile')} className={`flex flex-col items-center gap-1 flex-1 transition-all active:scale-90 ${currentView === 'profile' ? 'text-blue-900' : 'text-gray-300'}`}><User size={20} /><span className="text-[8px] font-bold uppercase">Me</span></button>
         </nav>
         {/* Home Indicator */}
         <div className="h-6 w-full flex justify-center items-center pb-2 bg-white dark:bg-slate-900">

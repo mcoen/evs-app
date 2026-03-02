@@ -125,12 +125,14 @@ function dynamicCoordinate(index: number, total: number): { x: number; y: number
 }
 
 function labelFor(location: SnapshotLocation, index: number): string {
-  if (location.room?.trim()) {
-    return `ED ${location.room.trim()}`;
+  const room = location.room?.trim();
+  if (room) {
+    return `ED ${room}`;
   }
 
-  if (location.name.toLowerCase().startsWith("ed")) {
-    return location.name;
+  const name = location.name?.trim();
+  if (name) {
+    return name.toLowerCase().startsWith("ed") ? name : `ED ${name}`;
   }
 
   return `ED Bay ${index + 1}`;
