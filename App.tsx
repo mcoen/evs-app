@@ -4,7 +4,7 @@ import { Task, AppNotification, TaskNote, EmployeeRole, TaskPriority, TaskStatus
 import { MOCK_TASKS, MOCK_NOTIFICATIONS, MOCK_HISTORY_TASKS, LOCATIONS, MOCK_USERS, ROTATIONAL_PATH, ROTATIONAL_PROTOCOL } from './constants';
 import TaskView from './components/TaskView';
 import Login from './components/Login';
-import { fetchFacilityIqEdPayload } from './facilityiq-api';
+import { askEvsAiHelper, fetchFacilityIqEdPayload } from './facilityiq-api';
 import { 
   Coffee, User, Bell, Activity, ChevronLeft, Info, 
   AlertTriangle, AlertCircle, History as HistoryIcon, 
@@ -14,7 +14,6 @@ import {
   MapPin, ClipboardList, Star, ShieldAlert, Calendar, X,
   Bot, Mic, Send, Loader2, Wifi, WifiOff
 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 
 type ViewState = 'task' | 'notifications' | 'history' | 'profile' | 'actions' | 'ai';
 
@@ -711,22 +710,17 @@ const App: React.FC = () => {
     setAiHistory(prev => [query, ...prev.filter(q => q !== query)].slice(0, 5));
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const currentLoc = userScopedLocations.find((location) => location.id === userLocationId)?.name || "Unknown Location";
-      const systemInstruction = `You are a specialized AI assistant for Environmental Services (EVS), Transport, Engineering, and BioMed staff at ${facilityName}. 
-      The current user role: ${currentUser?.role}. 
-      Current user location: ${currentLoc}. 
-      Task in progress: ${activeTask?.title || 'None'} in Room ${activeTask?.roomNumber || 'N/A'}.
-      Hospital Locations: ${userScopedLocations.map((location) => location.name).join(', ')}.
-      Always be concise, professional, and helpful. Focus on hospital protocols and equipment locations.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: query,
-        config: { systemInstruction }
+      const responseText = await askEvsAiHelper(query, {
+        facilityName,
+        role: currentUser?.role ?? "Unknown",
+        currentLocation: currentLoc,
+        activeTaskTitle: activeTask?.title,
+        activeTaskRoom: activeTask?.roomNumber,
+        userLocations: userScopedLocations.map((location) => location.name)
       });
 
-      setAiResponse(response.text);
+      setAiResponse(responseText);
     } catch (err) {
       console.error("AI Error:", err);
       setAiResponse("Sorry, I encountered an error processing that request. Please try again.");

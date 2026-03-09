@@ -790,7 +790,7 @@ const TaskView: React.FC<TaskViewProps> = ({
           {!isStarted ? (
             <button 
               onClick={onStart} 
-              className="flex flex-col items-center justify-center gap-1 py-3 bg-blue-600 text-white font-black rounded-2xl shadow-md shadow-blue-500/20 transition-all active:scale-95"
+              className="flex flex-col items-center justify-center gap-1 py-3 bg-[#2563EB] text-white font-black rounded-2xl shadow-md shadow-[rgba(37,99,235,0.28)] transition-all active:scale-95"
               title="Start Task"
             >
               <Play size={20} fill="currentColor" />

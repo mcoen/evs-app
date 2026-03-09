@@ -50,6 +50,15 @@ export interface FacilityIqEdPayload {
   rotationPath: string[];
 }
 
+export interface EvsAiHelperContext {
+  facilityName: string;
+  role: string;
+  currentLocation: string;
+  activeTaskTitle?: string;
+  activeTaskRoom?: string;
+  userLocations: string[];
+}
+
 const API_BASE_URL = (import.meta.env?.VITE_FACILITYIQ_API_BASE_URL ?? "http://localhost:4000").replace(/\/$/, "");
 const FACILITY_NAME_FILTER = (import.meta.env?.VITE_FACILITYIQ_FACILITY_NAME ?? "").trim().toLowerCase();
 
@@ -227,4 +236,39 @@ export async function fetchFacilityIqEdPayload(signal?: AbortSignal): Promise<Fa
     edLocations,
     rotationPath: edLocations.map((location) => location.id)
   };
+}
+
+export async function askEvsAiHelper(query: string, context: EvsAiHelperContext): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/ai/evs-helper`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      query,
+      context
+    })
+  });
+
+  if (!response.ok) {
+    const fallback = `AI helper request failed (${response.status})`;
+    let message = fallback;
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (body.error) {
+        message = body.error;
+      }
+    } catch {
+      message = fallback;
+    }
+    throw new Error(message);
+  }
+
+  const payload = (await response.json()) as { response?: string };
+  const text = payload.response?.trim();
+  if (!text) {
+    throw new Error("AI helper returned an empty response");
+  }
+
+  return text;
 }
